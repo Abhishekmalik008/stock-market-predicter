@@ -23,15 +23,10 @@ fi
 python -m pip install --upgrade pip
 
 # Install Python dependencies
-if [ -f "requirements-streamlit.txt" ]; then
-    echo "Installing Streamlit-optimized requirements..."
-    pip install -r requirements-streamlit.txt
-elif [ -f "requirements-minimal.txt" ]; then
-    echo "Installing minimal requirements..."
-    pip install -r requirements-minimal.txt
-elif [ -f "Pipfile" ]; then
-    pip install pipenv
-    pipenv install --system --deploy
-elif [ -f "requirements.txt" ]; then
-    pip install -r requirements.txt
+if [ -f "requirements-deploy.txt" ]; then
+    echo "Installing minimal deployment requirements..."
+    pip install -r requirements-deploy.txt
+else
+    echo "Error: requirements-deploy.txt not found!"
+    exit 1
 fi
