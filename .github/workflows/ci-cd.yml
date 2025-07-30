@@ -61,9 +61,13 @@ jobs:
     - name: Check for Codecov token
       id: check_codecov
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
       run: |
-        if [ -n "${{ secrets.CODECOV_TOKEN }}" ]; then
+        if [ -n "${CODECOV_TOKEN:-}" ]; then
           echo "codecov_available=true" >> $GITHUB_OUTPUT
+          # Mask the token in logs
+          echo "::add-mask::${CODECOV_TOKEN}"
         else
           echo "Codecov token not found, skipping upload"
           echo "codecov_available=false" >> $GITHUB_OUTPUT
@@ -73,7 +77,7 @@ jobs:
       if: steps.check_codecov.outputs.codecov_available == 'true'
       uses: codecov/codecov-action@v3
       with:
-        token: ${{ secrets.CODECOV_TOKEN }}
+        token: ${{ steps.check_codecov.outputs.codecov_token || secrets.CODECOV_TOKEN }}
         file: ./coverage.xml
         verbose: true
 
