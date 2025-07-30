@@ -2,22 +2,109 @@
 
 A comprehensive stock market prediction application built with Python, featuring multiple machine learning models and an interactive web interface.
 
-## Features
+## 🚀 Features
 
 - **Real-time Stock Data**: Fetch live stock data using Yahoo Finance API
-- **Multiple ML Models**: LSTM, Random Forest, and Linear Regression models
-- **Technical Indicators**: RSI, MACD, Bollinger Bands, Moving Averages, and more
+- **Multiple ML Models**: LSTM, Random Forest, XGBoost, LightGBM, and more
+- **Technical Indicators**: RSI, MACD, Bollinger Bands, Moving Averages, and 50+ others
 - **Interactive Dashboard**: Built with Streamlit for easy visualization
-- **Price Predictions**: Predict stock prices up to 30 days ahead
-- **Performance Metrics**: Model evaluation with RMSE, MAE, and R² scores
+- **Price Predictions**: Predict stock prices with confidence intervals
+- **Performance Metrics**: Comprehensive model evaluation
 - **Trading Signals**: Generate BUY/SELL/HOLD recommendations
+- **Cross-Platform**: Works on Windows, macOS, and Linux
+- **Cloud Ready**: Easy deployment to cloud platforms
 
-## Local Installation
+## 🛠️ System Requirements
 
-1. Clone or download this repository
-2. Install required dependencies:
+- **Python**: 3.9, 3.10, or 3.11
+- **OS**: Windows 10+, macOS 10.15+, or Linux
+- **RAM**: Minimum 4GB (8GB recommended)
+- **Disk Space**: 500MB free space
+- **Internet Connection**: Required for data fetching
+
+## 🚀 Installation
+
+### Option 1: Using pip (Recommended)
+
 ```bash
+# Clone the repository
+git clone https://github.com/yourusername/stock-market-predictor.git
+cd stock-market-predictor
+
+# Create and activate a virtual environment (recommended)
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install with core dependencies (minimum required)
+pip install -e .
+
+# For machine learning features
+pip install -e ".[ml]"
+
+# For web deployment
+pip install -e ".[web]"
+
+# Install all optional dependencies
+pip install -e ".[all]"
+```
+
+### Option 2: Using requirements.txt
+
+```bash
+# For basic functionality
 pip install -r requirements.txt
+
+# For additional ML features
+pip install -r requirements-ml.txt  # If you have this file
+```
+
+## 🔧 Compatibility Notes
+
+- **Python Version**: Tested with Python 3.9, 3.10, and 3.11
+- **Operating Systems**:
+  - Windows 10/11 (64-bit)
+  - macOS 10.15+
+  - Most Linux distributions (Ubuntu 20.04+, CentOS 8+)
+- **Known Issues**:
+  - Some visualization features may require additional system libraries on Linux
+  - TensorFlow/Keras models might have compatibility issues on ARM-based Macs (M1/M2)
+
+## 🚀 Quick Start
+
+1. Install the package as shown above
+2. Run the Streamlit app:
+   ```bash
+   streamlit run main.py
+   ```
+3. Open your browser to `http://localhost:8501`
+
+## 📦 Dependencies
+
+### Core Dependencies
+- Python 3.9+
+- Streamlit (web interface)
+- Pandas & NumPy (data manipulation)
+- yfinance (stock data)
+- scikit-learn (machine learning)
+- Plotly (visualizations)
+
+### Optional Dependencies
+- XGBoost, LightGBM (advanced ML models)
+- TensorFlow/PyTorch (deep learning)
+- Qiskit (quantum computing features)
+- TA-Lib (technical analysis)
+
+## 🤝 Contributing
+
+Contributions are welcome! Please read our [Contributing Guidelines](CONTRIBUTING.md) for details.
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 📧 Contact
+
+For support or questions, please open an issue on GitHub or contact [your-email@example.com](mailto:your-email@example.com).
 ```
 
 ## Local Usage
