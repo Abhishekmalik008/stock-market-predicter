@@ -19,6 +19,12 @@ plotly>=5.0.0
 streamlit>=1.22.0
 streamlit-option-menu>=0.3.6
 
+# Quantum Computing
+qiskit>=0.40.0
+qiskit-aer>=0.11.2
+qiskit-ibmq-provider>=0.19.2
+qiskit-machine-learning>=0.5.0
+
 # Utilities
 python-dotenv>=0.19.0
 requests>=2.28.0
