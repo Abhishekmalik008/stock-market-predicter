@@ -1,12 +1,36 @@
+import os
+import sys
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from enhanced_model_trainer import EnhancedModelTrainer
-from xgboost import XGBRegressor
 from datetime import datetime, timedelta
 import warnings
-import sys
+import pytest
+
+# Add parent directory to path to allow imports
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
+
+# Try to import the model trainer with better error handling
+try:
+    from enhanced_model_trainer import EnhancedModelTrainer
+except ImportError as e:
+    print(f"Error importing EnhancedModelTrainer: {e}")
+    EnhancedModelTrainer = None
+
+try:
+    from xgboost import XGBRegressor
+except ImportError as e:
+    print(f"Warning: XGBoost not available: {e}")
+    XGBRegressor = None
+
+# Configure warnings
 warnings.filterwarnings('ignore')
+
+# Skip tests if required imports are missing
+pytestmark = pytest.mark.skipif(
+    EnhancedModelTrainer is None or XGBRegressor is None,
+    reason="Required dependencies not available"
+)
 
 def fetch_stock_data(symbol, days=365):
     """Fetch stock data for the given symbol and ensure proper column structure"""
@@ -93,36 +117,81 @@ def fetch_stock_data(symbol, days=365):
     except Exception as e:
         print(f"Error fetching data for {symbol}: {str(e)}")
 
-def test_simple_prediction():
-    print("Testing Simple Prediction...")
-    
-    # Create a simple dataset
+def create_test_data(periods=100):
+    """Create a simple test dataset with technical indicators."""
     np.random.seed(42)
-    dates = pd.date_range(end=datetime.now(), periods=100)
+    dates = pd.date_range(end=datetime.now(), periods=periods)
+    
+    # Base prices with some trend
+    base = np.linspace(95, 105, periods) + np.random.normal(0, 2, periods)
+    
     data = pd.DataFrame({
-        'Open': np.random.normal(100, 5, 100),
-        'High': np.random.normal(105, 5, 100),
-        'Low': np.random.normal(95, 5, 100),
-        'Close': np.random.normal(100, 5, 100),
-        'Volume': np.random.randint(1000, 10000, 100)
+        'Open': base + np.random.normal(0, 1, periods),
+        'High': base + np.random.normal(2, 1, periods),
+        'Low': base - np.random.normal(2, 1, periods),
+        'Close': base + np.random.normal(0, 1, periods),
+        'Volume': np.random.randint(1000, 10000, periods)
     }, index=dates)
+    
+    # Ensure no negative prices
+    data = data.clip(lower=0.01)
+    
+    # Add technical indicators
+    for window in [5, 10, 20]:
+        data[f'SMA_{window}'] = data['Close'].rolling(window=window).mean()
+    
+    # Add RSI-like feature
+    delta = data['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rs = gain / loss
+    data['RSI'] = 100 - (100 / (1 + rs))
+    
+    # Add MACD-like features
+    exp1 = data['Close'].ewm(span=12, adjust=False).mean()
+    exp2 = data['Close'].ewm(span=26, adjust=False).mean()
+    data['MACD'] = exp1 - exp2
+    data['Signal_Line'] = data['MACD'].ewm(span=9, adjust=False).mean()
+    
+    # Add Bollinger Bands
+    data['SMA_20'] = data['Close'].rolling(window=20).mean()
+    data['STD_20'] = data['Close'].rolling(window=20).std()
+    data['BB_Upper'] = data['SMA_20'] + (data['STD_20'] * 2)
+    data['BB_Lower'] = data['SMA_20'] - (data['STD_20'] * 2)
+    
+    # Drop any rows with NaN values that might have been created by indicators
+    data = data.dropna()
+    
+    return data
+
+def test_simple_prediction():
+    """Test basic prediction functionality with synthetic data."""
+    print("\n=== Testing Simple Prediction ===")
+    
+    # Create test data
+    data = create_test_data()
+    assert not data.empty, "Failed to create test data"
+    n_samples = len(data)
+    print(f"Created test data with {n_samples} rows")
     
     # Add some technical indicators
     for window in [5, 10, 20, 50]:
-        data[f'MA_{window}'] = data['Close'].rolling(window=window).mean()
+        if window < n_samples:  # Only add if window size is smaller than data length
+            data[f'MA_{window}'] = data['Close'].rolling(window=window).mean()
     
-    # Add some random features
-    data['RSI'] = np.random.uniform(30, 70, 100)
-    data['MACD'] = np.random.normal(0, 1, 100)
-    data['MACD_signal'] = np.random.normal(0, 1, 100)
-    data['MACD_histogram'] = np.random.normal(0, 0.5, 100)
+    # Add some random features with correct length
+    data['RSI'] = np.random.uniform(30, 70, n_samples)
+    data['MACD'] = np.random.normal(0, 1, n_samples)
+    data['MACD_signal'] = np.random.normal(0, 1, n_samples)
+    data['MACD_histogram'] = np.random.normal(0, 0.5, n_samples)
     data['BB_upper'] = data['Close'] + 5
     data['BB_lower'] = data['Close'] - 5
     data['BB_middle'] = data['Close']
-    data['Volume_ratio'] = np.random.uniform(0.8, 1.2, 100)
-    data['Price_change'] = np.random.normal(0, 0.01, 100)
+    data['Volume_ratio'] = np.random.uniform(0.8, 1.2, n_samples)
+    data['Price_change'] = np.random.normal(0, 0.01, n_samples)
     data['High_Low_ratio'] = data['High'] / data['Low']
     data['Open_Close_ratio'] = data['Open'] / data['Close']
+    data['Volume_change'] = np.random.normal(0, 0.1, n_samples)
     
     # Drop any remaining NaN values
     data = data.dropna()

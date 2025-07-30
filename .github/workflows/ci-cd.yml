@@ -22,22 +22,41 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
     
-    - name: Install dependencies
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc g++ python3-dev
+    
+    - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pytest pytest-cov
+        pip install pytest pytest-cov pytest-xdist
+        pip install --upgrade numpy pandas scipy scikit-learn
     
     - name: Run tests
       run: |
-        python -m pytest tests/ --cov=./ --cov-report=xml
+        python -m pytest -v -n auto --cov=./ --cov-report=xml
+    
+    # Codecov upload - will only run if CODECOV_TOKEN is available
+    - name: Check for Codecov token
+      id: check_codecov
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: |
+        if [ -n "${{ secrets.CODECOV_TOKEN }}" ]; then
+          echo "codecov_available=true" >> $GITHUB_OUTPUT
+        else
+          echo "Codecov token not found, skipping upload"
+          echo "codecov_available=false" >> $GITHUB_OUTPUT
+        fi
     
     - name: Upload coverage to Codecov
+      if: steps.check_codecov.outputs.codecov_available == 'true'
       uses: codecov/codecov-action@v3
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         file: ./coverage.xml
-        fail_ci_if_error: false
+        verbose: true
 
   deploy:
     name: Deploy to Cloud
