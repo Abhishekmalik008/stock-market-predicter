@@ -1,5 +1,7 @@
 # 📈 Stock Market Prediction Software
 
+![CI/CD Status](https://github.com/Abhishekmalik008/stock-market-predicter/actions/workflows/ci-cd.yml/badge.svg?branch=main)
+
 A comprehensive stock market prediction application built with Python, featuring multiple machine learning models and an interactive web interface.
 
 ## 🚀 Features
@@ -97,6 +99,21 @@ pip install -r requirements-ml.txt  # If you have this file
 ## 🤝 Contributing
 
 Contributions are welcome! Please read our [Contributing Guidelines](CONTRIBUTING.md) for details.
+
+### Code Coverage with Codecov
+
+This project uses Codecov to track test coverage. To enable code coverage reporting:
+
+1. Sign in to [Codecov](https://about.codecov.io/) with your GitHub account
+2. Add your repository to Codecov
+3. Get the repository upload token from Codecov
+4. Add the token to your GitHub repository secrets:
+   - Go to your repository Settings > Secrets > Actions
+   - Click "New repository secret"
+   - Name: `CODECOV_TOKEN`
+   - Value: [paste your Codecov token here]
+
+Code coverage reports will now be automatically uploaded when tests pass on the main branch.
 
 ## 📄 License
 
