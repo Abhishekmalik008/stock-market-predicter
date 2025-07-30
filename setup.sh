@@ -23,7 +23,10 @@ fi
 python -m pip install --upgrade pip
 
 # Install Python dependencies
-if [ -f "Pipfile" ]; then
+if [ -f "requirements-minimal.txt" ]; then
+    echo "Installing minimal requirements..."
+    pip install -r requirements-minimal.txt
+elif [ -f "Pipfile" ]; then
     pip install pipenv
     pipenv install --system --deploy
 elif [ -f "requirements.txt" ]; then
