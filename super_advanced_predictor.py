@@ -21,6 +21,9 @@ from sklearn.linear_model import Ridge, ElasticNet, BayesianRidge, HuberRegresso
 from sklearn.svm import SVR
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.tree import DecisionTreeRegressor
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense, Dropout, Bidirectional
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler, RobustScaler, MinMaxScaler
 from sklearn.model_selection import TimeSeriesSplit, GridSearchCV, cross_val_score
@@ -34,6 +37,63 @@ import warnings
 warnings.filterwarnings('ignore')
 
 class SuperAdvancedPredictor:
+    def __init__(self):
+        self.scalers = {
+            'standard': StandardScaler(),
+            'robust': RobustScaler(),
+            'minmax': MinMaxScaler()
+        }
+        self.models = {}
+        self.feature_importance = {}
+        self.ensemble_weights = {}
+
+    def create_features(self, data):
+        """
+        Create a comprehensive set of features for stock prediction.
+        """
+        df = data.copy()
+
+        # 1. Basic Price and Volume Transformations
+        df['Price_Range'] = df['High'] - df['Low']
+        df['Open_Close_Range'] = df['Close'] - df['Open']
+        df['Log_Volume'] = np.log1p(df['Volume'])
+
+        # 2. Lag Features (capturing historical information)
+        for lag in [1, 2, 3, 5, 10, 21]:
+            df[f'Close_Lag_{lag}'] = df['Close'].shift(lag)
+            df[f'Volume_Lag_{lag}'] = df['Log_Volume'].shift(lag)
+            df[f'Return_Lag_{lag}'] = df['Close'].pct_change().shift(lag)
+
+        # 3. Rolling Window Statistics (capturing trends)
+        for window in [5, 10, 21, 63]:
+            df[f'Close_Rolling_Mean_{window}'] = df['Close'].rolling(window=window).mean()
+            df[f'Close_Rolling_Std_{window}'] = df['Close'].rolling(window=window).std()
+            df[f'Volume_Rolling_Mean_{window}'] = df['Log_Volume'].rolling(window=window).mean()
+
+        # 4. Time-Based Features (capturing seasonality)
+        df['Day_of_Week'] = df.index.dayofweek
+        df['Day_of_Month'] = df.index.day
+        df['Month_of_Year'] = df.index.month
+        df['Year'] = df.index.year
+
+        # 5. Comprehensive Technical Indicators (using 'ta' library)
+        # Add all technical analysis features from 'ta' library
+        df = ta.add_all_ta_features(
+            df, open="Open", high="High", low="Low", close="Close", volume="Volume", fillna=True
+        )
+
+        # 6. Market Microstructure and Sentiment Proxies
+        df['Spread_Proxy'] = (df['High'] - df['Low']) / df['Close']
+        df['Price_Impact_Proxy'] = (df['Close'].pct_change() / df['Log_Volume']).fillna(0)
+        df['Order_Flow_Imbalance'] = ((df['Close'] - df['Low']) - (df['High'] - df['Close'])) / (df['High'] - df['Low'] + 1e-8)
+        df['VPIN_Proxy'] = abs(df['Order_Flow_Imbalance']).rolling(window=20).mean()
+
+        # Clean up infinite values that might result from division by zero
+        df.replace([np.inf, -np.inf], np.nan, inplace=True)
+        df.fillna(method='ffill', inplace=True)
+        df.fillna(0, inplace=True)
+
+        return df
     def __init__(self):
         self.scalers = {
             'standard': StandardScaler(),
@@ -671,168 +731,129 @@ class SuperAdvancedPredictor:
         
         return df
     
-    def create_super_ensemble_model(self, n_samples=None):
-        """Create a super advanced ensemble with multiple layers"""
-        
-        # Base models (Level 1) - State-of-the-art algorithms
-        base_models = {
-            # Traditional ensemble methods
-            'rf_optimized': RandomForestRegressor(
-                n_estimators=300, max_depth=20, min_samples_split=3,
-                min_samples_leaf=1, random_state=42, n_jobs=-1
-            ),
-            'gb_optimized': GradientBoostingRegressor(
-                n_estimators=200, learning_rate=0.05, max_depth=8,
-                min_samples_split=5, min_samples_leaf=2, random_state=42
-            ),
-            'et_optimized': ExtraTreesRegressor(
-                n_estimators=250, max_depth=25, min_samples_split=2,
-                min_samples_leaf=1, random_state=42, n_jobs=-1
-            ),
-            
-            # Advanced gradient boosting
-            'xgb_advanced': xgb.XGBRegressor(
-                n_estimators=300, learning_rate=0.05, max_depth=8,
-                subsample=0.8, colsample_bytree=0.8, random_state=42
-            ),
-            'lgb_advanced': lgb.LGBMRegressor(
-                n_estimators=300, learning_rate=0.05, max_depth=8,
-                subsample=0.8, colsample_bytree=0.8, random_state=42, verbose=-1
-            ),
-            'cat_advanced': cat.CatBoostRegressor(
-                iterations=300, learning_rate=0.05, depth=8,
-                random_state=42, verbose=False
-            ),
-            
-            # Neural networks
-            'mlp_deep': MLPRegressor(
-                hidden_layer_sizes=(200, 100, 50), activation='relu',
-                solver='adam', alpha=0.001, learning_rate='adaptive',
-                max_iter=1000, random_state=42
-            ),
-            
-            # Support vector machines
-            'svr_rbf': SVR(kernel='rbf', C=100, gamma='scale', epsilon=0.01),
-            'svr_poly': SVR(kernel='poly', degree=3, C=100, gamma='scale'),
-            
-            # Bayesian methods
-            'bayesian_ridge': BayesianRidge(alpha_1=1e-6, alpha_2=1e-6, lambda_1=1e-6, lambda_2=1e-6),
-            'huber': HuberRegressor(epsilon=1.35, alpha=0.0001),
-            
-            # Boosting variants
-            'ada_boost': AdaBoostRegressor(
-                n_estimators=100, learning_rate=0.8, random_state=42
-            ),
-            'knn_adaptive': KNeighborsRegressor(n_neighbors=15, weights='distance')
+    def _get_tuned_model(self, model, param_grid, X, y):
+        """Helper function to tune a model using GridSearchCV."""
+        # Use a smaller subset of data for faster grid search if the dataset is large
+        if len(X) > 10000:
+            indices = np.random.choice(len(X), 10000, replace=False)
+            X_sample, y_sample = X[indices], y.iloc[indices]
+        else:
+            X_sample, y_sample = X, y
+
+        grid_search = GridSearchCV(estimator=model, param_grid=param_grid, cv=3, n_jobs=-1, scoring='neg_mean_squared_error', error_score='raise')
+        grid_search.fit(X_sample, y_sample)
+        print(f"Best params for {model.__class__.__name__}: {grid_search.best_params_}")
+        return grid_search.best_estimator_
+
+    def create_super_ensemble_model(self, n_samples, X_train, y_train):
+        """Create a super ensemble model with hyperparameter tuning."""
+        # Define parameter grids for each model
+        param_grids = {
+            'RandomForest': {
+                'n_estimators': [50, 100],
+                'max_depth': [10, 20],
+                'min_samples_split': [2, 5]
+            },
+            'GradientBoosting': {
+                'n_estimators': [50, 100],
+                'learning_rate': [0.05, 0.1],
+                'max_depth': [3, 5]
+            },
+            'XGBoost': {
+                'n_estimators': [50, 100],
+                'learning_rate': [0.05, 0.1],
+                'max_depth': [3, 5]
+            },
+            'LGBM': {
+                'n_estimators': [50, 100],
+                'learning_rate': [0.05, 0.1],
+                'num_leaves': [20, 31]
+            },
+            'CatBoost': {
+                'iterations': [50, 100],
+                'learning_rate': [0.05, 0.1],
+                'depth': [4, 6]
+            }
         }
+
+        # Tune each base model
+        rf_model = self._get_tuned_model(RandomForestRegressor(random_state=42, n_jobs=-1), param_grids['RandomForest'], X_train, y_train)
+        gb_model = self._get_tuned_model(GradientBoostingRegressor(random_state=42), param_grids['GradientBoosting'], X_train, y_train)
+        xgb_model = self._get_tuned_model(XGBRegressor(random_state=42, objective='reg:squarederror', n_jobs=-1), param_grids['XGBoost'], X_train, y_train)
+        lgbm_model = self._get_tuned_model(LGBMRegressor(random_state=42, n_jobs=-1, verbose=-1), param_grids['LGBM'], X_train, y_train)
+        catboost_model = self._get_tuned_model(CatBoostRegressor(random_state=42, verbose=0), param_grids['CatBoost'], X_train, y_train)
+
+        base_estimators = [
+            ('RandomForest', rf_model),
+            ('GradientBoosting', gb_model),
+            ('XGBoost', xgb_model),
+            ('LGBM', lgbm_model),
+            ('CatBoost', catboost_model)
+        ]
         
-        # Meta-learner (Level 2)
-        meta_learner = GradientBoostingRegressor(
-            n_estimators=100, learning_rate=0.1, max_depth=6, random_state=42
+        meta_learner = LinearRegression(n_jobs=-1)
+        
+        stacking_regressor = StackingRegressor(
+            estimators=base_estimators, 
+            final_estimator=meta_learner,
+            cv=3,  # 3-fold cross-validation for the meta-learner
+            n_jobs=-1
         )
         
-        # Determine appropriate CV strategy based on data size
-        try:
-            if n_samples is None or n_samples < 100:
-                # For small datasets, use simple voting ensemble
-                print("Warning: Using VotingRegressor due to insufficient data for cross-validation")
-                voting_ensemble = VotingRegressor(
-                    estimators=list(base_models.items())[:5],  # Use fewer models for small data
-                    n_jobs=-1
-                )
-                return voting_ensemble
-            elif n_samples < 200:
-                # Use fewer splits for medium datasets
-                cv_splits = 3
-            else:
-                # Use standard splits for large datasets
-                cv_splits = 5
-            
-            # Create stacking ensemble with appropriate CV
-            stacking_ensemble = StackingRegressor(
-                estimators=list(base_models.items()),
-                final_estimator=meta_learner,
-                cv=TimeSeriesSplit(n_splits=cv_splits),
-                n_jobs=-1
-            )
-            
-            return stacking_ensemble
-            
-        except Exception as e:
-            print(f"Warning: Error creating stacking ensemble: {e}")
-            # Fallback to voting ensemble
-            voting_ensemble = VotingRegressor(
-                estimators=list(base_models.items())[:5],
-                n_jobs=-1
-            )
-            return voting_ensemble
+        # Fit the final stacking model on the full training data
+        stacking_regressor.fit(X_train, y_train)
+
+        return stacking_regressor
+
+    def _prepare_lstm_data(self, data, n_steps=60):
+        """Prepare data for LSTM model training."""
+        X, y = [], []
+        for i in range(len(data) - n_steps):
+            X.append(data[i:(i + n_steps), :])
+            y.append(data[i + n_steps, 0])  # Assuming target is the first column
+        return np.array(X), np.array(y)
+
+    def create_lstm_model(self, input_shape):
+        """Create a sophisticated LSTM model."""
+        model = Sequential([
+            Bidirectional(LSTM(100, return_sequences=True), input_shape=input_shape),
+            Dropout(0.3),
+            Bidirectional(LSTM(100, return_sequences=False)),
+            Dropout(0.3),
+            Dense(50, activation='relu'),
+            Dense(1)
+        ])
+        model.compile(optimizer='adam', loss='mean_squared_error')
+        return model
+
     
-    def create_adaptive_ensemble(self, X, y):
-        """Create an adaptive ensemble that adjusts weights based on recent performance"""
-        
-        try:
-            # Check if we have enough data
-            if len(X) < 50:
-                print("Warning: Insufficient data for adaptive ensemble. Using simple RandomForest.")
-                return RandomForestRegressor(n_estimators=100, random_state=42)
-            
-            # Split data into train and validation
-            split_idx = int(0.8 * len(X))
-            X_train, X_val = X[:split_idx], X[split_idx:]
-            y_train, y_val = y[:split_idx], y[split_idx:]
-            
-            # Ensure we have enough validation data
-            if len(X_val) < 10:
-                print("Warning: Insufficient validation data for adaptive ensemble. Using simple RandomForest.")
-                return RandomForestRegressor(n_estimators=100, random_state=42)
-            
-            # Base models with reduced complexity for smaller datasets
-            n_estimators = min(100, max(50, len(X_train) // 5))
-            models = {
-                'rf': RandomForestRegressor(n_estimators=n_estimators, random_state=42),
-                'gb': GradientBoostingRegressor(n_estimators=n_estimators, random_state=42),
-                'svr': SVR(kernel='rbf', C=10),  # Reduced C for stability
-                'mlp': MLPRegressor(hidden_layer_sizes=(50,), random_state=42, max_iter=300)
-            }
-        except Exception as e:
-            print(f"Warning: Error in adaptive ensemble setup: {e}")
-            return RandomForestRegressor(n_estimators=100, random_state=42)
-        
-        # Train models and calculate weights based on recent performance
-        model_predictions = {}
-        model_weights = {}
-        
-        for name, model in models.items():
-            model.fit(X_train, y_train)
-            pred = model.predict(X_val)
-            
-            # Calculate time-decayed error (recent errors weighted more)
-            errors = np.abs(y_val - pred)
-            time_weights = np.exp(np.linspace(-1, 0, len(errors)))  # Recent data weighted more
-            weighted_error = np.average(errors, weights=time_weights)
-            
-            model_predictions[name] = pred
-            model_weights[name] = 1 / (1 + weighted_error)  # Lower error = higher weight
-        
-        # Normalize weights
-        total_weight = sum(model_weights.values())
-        model_weights = {k: v/total_weight for k, v in model_weights.items()}
-        
-        self.ensemble_weights = model_weights
-        return models
+    def create_adaptive_ensemble(self, X_train, y_train):
+        """Create an adaptive ensemble with hyperparameter tuning."""
+        param_grids = {
+            'RandomForest': {'n_estimators': [50, 100], 'max_depth': [10, 15]},
+            'GradientBoosting': {'n_estimators': [50, 100], 'learning_rate': [0.05, 0.1]},
+            'XGBoost': {'n_estimators': [50, 100], 'learning_rate': [0.05, 0.1]},
+            'LGBM': {'n_estimators': [50, 100], 'learning_rate': [0.05, 0.1]}
+        }
+
+        tuned_models = {
+            'rf': self._get_tuned_model(RandomForestRegressor(random_state=42, n_jobs=-1), param_grids['RandomForest'], X_train, y_train),
+            'gb': self._get_tuned_model(GradientBoostingRegressor(random_state=42), param_grids['GradientBoosting'], X_train, y_train),
+            'xgb': self._get_tuned_model(XGBRegressor(random_state=42, objective='reg:squarederror', n_jobs=-1), param_grids['XGBoost'], X_train, y_train),
+            'lgb': self._get_tuned_model(LGBMRegressor(random_state=42, n_jobs=-1, verbose=-1), param_grids['LGBM'], X_train, y_train)
+        }
+
+        # For simplicity, we'll use equal weighting for the adaptive ensemble for now.
+        # A more complex weighting scheme could be implemented later if needed.
+        self.ensemble_weights = {name: 1.0 / len(tuned_models) for name in tuned_models.keys()}
+
+        return tuned_models
     
     def train_super_advanced_model(self, data, target_periods=[1, 5, 10]):
         """Train the super advanced prediction system"""
         
-        # Create all advanced features
-        enhanced_data = self.create_quantum_inspired_features(data)
-        enhanced_data = self.create_fractal_features(enhanced_data)
-        enhanced_data = self.create_advanced_technical_features(enhanced_data)
-        enhanced_data = self.create_market_microstructure_features(enhanced_data)
-        enhanced_data = self.create_sentiment_proxy_features(enhanced_data)
-        
-        # Add all previous advanced features
-        enhanced_data = self._add_comprehensive_features(enhanced_data)
+        # Create all features using the new unified function
+        enhanced_data = self.create_features(data)
         
         models = {}
         feature_importance = {}
@@ -881,9 +902,9 @@ class SuperAdvancedPredictor:
             
             try:
                 print(f"Training super ensemble with {len(X)} samples...")
-                # Super ensemble with sample size for proper CV handling
-                super_ensemble = self.create_super_ensemble_model(n_samples=len(X))
-                super_ensemble.fit(X_scaled['robust'], y)
+                # Super ensemble with hyperparameter tuning
+                super_ensemble = self.create_super_ensemble_model(n_samples=len(X), X_train=X_scaled['robust'], y_train=y)
+
                 ensemble_models['super_ensemble'] = super_ensemble
                 print("Super ensemble training completed successfully.")
             except Exception as e:
@@ -904,10 +925,36 @@ class SuperAdvancedPredictor:
                 # Fallback to simple GradientBoosting
                 fallback_model = GradientBoostingRegressor(n_estimators=100, random_state=42)
                 fallback_model.fit(X_scaled['standard'], y)
-                ensemble_models['adaptive_ensemble'] = fallback_model
+                ensemble_models['adaptive_ensemble'] = {'fallback_gb': fallback_model}
             
+            # Train LSTM Model
+            lstm_model = None
+            try:
+                print(f"Training LSTM model for {periods} periods...")
+                # The target variable should be the first column for _prepare_lstm_data
+                lstm_data = X.copy()
+                lstm_data.insert(0, f'Target_{periods}', y)
+                
+                X_lstm, y_lstm = self._prepare_lstm_data(lstm_data.values, n_steps=60)
+                
+                if X_lstm.shape[0] > 0:
+                    lstm_model = self.create_lstm_model(input_shape=(X_lstm.shape[1], X_lstm.shape[2]))
+                    
+                    early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+                    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5)
+                    
+                    lstm_model.fit(X_lstm, y_lstm, epochs=50, batch_size=32, validation_split=0.1, 
+                                 callbacks=[early_stopping, reduce_lr], verbose=1)
+                    print("LSTM model training completed successfully.")
+                else:
+                    print("Not enough data to train LSTM model.")
+
+            except Exception as e:
+                print(f"Warning: LSTM model training failed: {e}")
+
             # Store models and preprocessing
             models[f'model_{periods}'] = {
+                'lstm_model': lstm_model,
                 'ensemble_models': ensemble_models,
                 'feature_selector': selector_f,
                 'pca': pca,
@@ -916,92 +963,94 @@ class SuperAdvancedPredictor:
                 'ensemble_weights': self.ensemble_weights.copy()
             }
             
-            # Calculate feature importance
-            if hasattr(super_ensemble, 'feature_importances_'):
-                importance = dict(zip(range(len(super_ensemble.feature_importances_)), 
-                                    super_ensemble.feature_importances_))
-                feature_importance[f'importance_{periods}'] = importance
+            # Calculate feature importance only if super_ensemble was successfully created
+            if 'super_ensemble' in ensemble_models and hasattr(ensemble_models['super_ensemble'], 'feature_importances_'):
+                model_for_importance = ensemble_models['super_ensemble']
+                # For StackingRegressor, feature importances are from the final estimator
+                if isinstance(model_for_importance, StackingRegressor) and hasattr(model_for_importance.final_estimator_, 'coef_'):
+                    importances = model_for_importance.final_estimator_.coef_.flatten()
+                    importance = dict(zip(range(len(importances)), importances))
+                    feature_importance[f'importance_{periods}'] = importance
+                elif hasattr(model_for_importance, 'feature_importances_'):
+                    importances = model_for_importance.feature_importances_
+                    importance = dict(zip(range(len(importances)), importances))
+                    feature_importance[f'importance_{periods}'] = importance
         
         self.models = models
         self.feature_importance = feature_importance
         
         return models
     
-    def predict_super_advanced(self, data, symbol, periods_ahead=[1, 5, 10]):
-        """Make super advanced predictions with maximum accuracy"""
+    def predict_super_advanced(self, data, symbol, periods_ahead=[1, 5, 10], model_choice='Hybrid (Recommended)'):
+        """Make super advanced predictions with maximum accuracy based on user's model choice."""
         try:
-            # Create all advanced features
-            enhanced_data = self.create_quantum_inspired_features(data)
-            enhanced_data = self.create_fractal_features(enhanced_data)
-            enhanced_data = self.create_advanced_technical_features(enhanced_data)
-            enhanced_data = self.create_market_microstructure_features(enhanced_data)
-            enhanced_data = self.create_sentiment_proxy_features(enhanced_data)
-            enhanced_data = self._add_comprehensive_features(enhanced_data)
-            
+            enhanced_data = self.create_features(data)
             predictions = {}
-            
+
             for periods in periods_ahead:
                 model_key = f'model_{periods}'
-                
                 if model_key not in self.models:
                     continue
-                
+
                 model_info = self.models[model_key]
-                
-                # Prepare features
-                numeric_cols = enhanced_data.select_dtypes(include=[np.number]).columns
-                feature_cols = [col for col in numeric_cols if col != 'Close']
-                
                 latest_features = enhanced_data[model_info['selected_features']].iloc[-1:].fillna(method='ffill').fillna(0)
-                
-                # Apply PCA
                 latest_pca = model_info['pca'].transform(latest_features)
-                
-                # Make predictions with all ensemble models
-                ensemble_predictions = []
-                
-                # Super ensemble prediction
-                for scaler_name, scaler in model_info['scalers'].items():
+
+                preds_to_average = []
+
+                # Super Ensemble Prediction
+                if model_choice in ['Hybrid (Recommended)', 'Super Ensemble']:
+                    scaler = model_info['scalers']['robust']
                     latest_scaled = scaler.transform(latest_pca)
                     super_pred = model_info['ensemble_models']['super_ensemble'].predict(latest_scaled)[0]
-                    ensemble_predictions.append(super_pred)
-                
-                # Adaptive ensemble predictions
-                adaptive_models = model_info['ensemble_models']['adaptive_ensemble']
-                adaptive_preds = []
-                
-                for model_name, model in adaptive_models.items():
+                    preds_to_average.append(super_pred)
+
+                # Adaptive Ensemble Prediction
+                if model_choice in ['Hybrid (Recommended)', 'Adaptive Ensemble']:
+                    adaptive_models = model_info['ensemble_models']['adaptive_ensemble']
+                    adaptive_preds = []
                     latest_scaled = model_info['scalers']['standard'].transform(latest_pca)
-                    pred = model.predict(latest_scaled)[0]
-                    weight = model_info['ensemble_weights'].get(model_name, 0.25)
-                    adaptive_preds.append(pred * weight)
+                    for model_name, model in adaptive_models.items():
+                        pred = model.predict(latest_scaled)[0]
+                        weight = model_info['ensemble_weights'].get(model_name, 1.0 / len(adaptive_models))
+                        adaptive_preds.append(pred * weight)
+                    if adaptive_preds:
+                        preds_to_average.append(sum(adaptive_preds))
+
+                # LSTM Prediction
+                if model_choice in ['Hybrid (Recommended)', 'LSTM Model'] and model_info.get('lstm_model'):
+                    try:
+                        lstm_input_data = enhanced_data[model_info['selected_features']].fillna(method='ffill').fillna(0)
+                        lstm_input_data.insert(0, 'Target_Placeholder', 0)
+                        latest_lstm_data = lstm_input_data.values[-60:]
+                        latest_lstm_data = latest_lstm_data.reshape((1, latest_lstm_data.shape[0], latest_lstm_data.shape[1]))
+                        lstm_pred = model_info['lstm_model'].predict(latest_lstm_data, verbose=0)[0][0]
+                        preds_to_average.append(lstm_pred)
+                    except Exception as e:
+                        print(f"LSTM prediction failed: {e}")
                 
-                adaptive_ensemble_pred = sum(adaptive_preds)
-                ensemble_predictions.append(adaptive_ensemble_pred)
+                if not preds_to_average:
+                    raise ValueError("No valid model was selected or trained for prediction.")
+
+                final_prediction = np.mean(preds_to_average)
                 
-                # Final prediction (weighted average of all ensembles)
-                final_prediction = np.mean(ensemble_predictions)
-                
-                # Calculate advanced confidence based on ensemble agreement
-                prediction_std = np.std(ensemble_predictions)
+                # Calculate confidence
+                prediction_std = np.std(preds_to_average) if len(preds_to_average) > 1 else 0.0
                 recent_volatility = enhanced_data['Close'].pct_change().tail(20).std()
-                
                 confidence_interval = prediction_std + (final_prediction * recent_volatility * np.sqrt(periods))
-                confidence = max(0.7, min(0.98, 1 - (prediction_std / abs(final_prediction))))
-                
+                confidence = max(0.7, min(0.98, 1 - (prediction_std / abs(final_prediction)) if abs(final_prediction) > 0 else 0))
+
                 predictions[f'{periods}_day'] = {
                     'prediction': final_prediction,
                     'lower_bound': final_prediction - confidence_interval,
                     'upper_bound': final_prediction + confidence_interval,
-                    'confidence': confidence,
-                    'ensemble_agreement': 1 - (prediction_std / abs(final_prediction)),
-                    'volatility_adjusted': True
+                    'confidence': confidence
                 }
-            
+
             return predictions
-            
+
         except Exception as e:
-            raise Exception(f"Error making super advanced predictions: {str(e)}")
+            raise Exception(f"Error in super advanced prediction for {symbol}: {str(e)}")
     
     def _add_comprehensive_features(self, df):
         """Add all comprehensive features from previous implementation"""

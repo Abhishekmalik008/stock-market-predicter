@@ -16,6 +16,7 @@ from trading_signals import TradingSignalGenerator
 from intraday_predictor import IntradayPredictor
 from advanced_predictor import AdvancedStockPredictor
 from super_advanced_predictor import SuperAdvancedPredictor
+from sklearn.metrics import mean_absolute_error, r2_score
 
 def main():
     st.set_page_config(
@@ -895,6 +896,78 @@ def show_prediction():
         except Exception as e:
             st.error(f"Error generating prediction: {str(e)}")
 
+def show_super_advanced_ai_page():
+    st.header("🤖 Super Advanced AI Prediction Engine")
+    st.info("Leveraging state-of-the-art ensemble models, deep learning, and hyperparameter tuning for maximum accuracy.")
+
+    # Market and stock selection
+    market = st.selectbox("Select Market", ["US Stocks", "Indian Stocks (NSE)"], index=0, key="super_adv_market")
+    
+    col1, col2, col3 = st.columns([2,1,1])
+    with col1:
+        if market == "Indian Stocks (NSE)":
+            indian_symbols = get_indian_stock_suggestions()
+            symbol = st.selectbox("Select Indian Stock", indian_symbols, index=0, key="super_adv_symbol")
+            st.info(f"Predicting: {get_stock_name(symbol)}")
+        else:
+            symbol = st.text_input("Stock Symbol", value="NVDA")
+    with col2:
+        days_ahead = st.slider("Days to Predict", 1, 30, 5, key="super_adv_days")
+    with col3:
+        model_choice = st.selectbox("Choose AI Model", 
+                                    ['Hybrid (Recommended)', 'Super Ensemble', 'Adaptive Ensemble', 'LSTM Model'],
+                                    key="super_adv_model")
+
+    if st.button("Run Super Advanced Prediction"):
+        try:
+            with st.spinner(f"Initializing Super Advanced Predictor for {symbol}..."):
+                predictor = SuperAdvancedPredictor(symbol)
+                data, _ = predictor.load_data(period="5y")
+
+            with st.spinner("Training models... This may take a few minutes."):
+                predictor.train_super_advanced_model(data, target_periods=[days_ahead])
+
+            with st.spinner("Generating high-accuracy prediction..."):
+                results = predictor.predict_super_advanced(data, symbol, periods_ahead=[days_ahead], model_choice=model_choice)
+                accuracy = predictor.validate_model(data, [days_ahead])
+
+            if not results or not accuracy:
+                st.error("Failed to generate a prediction. The model may require more data or different parameters.")
+                return
+
+            st.success("✅ Prediction and Analysis Complete!")
+
+            pred_data = results[f'{days_ahead}_day']
+            acc_data = accuracy[f'{days_ahead}_day'][model_choice]
+
+            # --- Display Results ---
+            predicted_price = pred_data['prediction']
+            current_price = data['Close'].iloc[-1]
+            change = predicted_price - current_price
+            change_percent = (change / current_price) * 100
+            currency_symbol = "₹" if is_indian_stock(symbol) else "$"
+
+            # Main metrics
+            res_col1, res_col2, res_col3, res_col4 = st.columns(4)
+            res_col1.metric("Current Price", f"{currency_symbol}{current_price:.2f}")
+            res_col2.metric(f"{days_ahead}-Day Predicted Price", f"{currency_symbol}{predicted_price:.2f}")
+            res_col3.metric("Expected Change", f"{change_percent:.2f}%")
+            res_col4.metric("Model Accuracy (R²)", f"{acc_data['r2']:.3f}")
+
+            # Prediction Chart
+            future_dates = pd.to_datetime(pd.date_range(start=data.index[-1], periods=days_ahead + 1).date)
+            prediction_series = pd.Series(np.linspace(current_price, predicted_price, days_ahead + 1), index=future_dates)
+            
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=data.index[-60:], y=data['Close'][-60:], mode='lines', name='Historical Price'))
+            fig.add_trace(go.Scatter(x=prediction_series.index, y=prediction_series.values, mode='lines', name='AI Prediction', line=dict(dash='dash', color='red')))
+            fig.update_layout(title=f'{symbol} - {model_choice} Prediction', yaxis_title=f'Price ({currency_symbol})')
+            st.plotly_chart(fig, use_container_width=True)
+
+        except Exception as e:
+            st.error(f"An error occurred: {e}")
+
+
 def show_intraday_prediction():
     st.header("⚡ Intraday Prediction - Day Trading Signals")
     st.info("🔥 Real-time minute-by-minute and hourly predictions for active day trading")
@@ -919,22 +992,54 @@ def show_intraday_prediction():
     with col3:
         prediction_periods = st.slider("Prediction Periods", 5, 50, 12)
     
-    # Real-time update option
-    col1, col2 = st.columns(2)
+    # Model and update options
+    col1, col2, col3 = st.columns(3)
     with col1:
         auto_refresh = st.checkbox("Auto-refresh (Live Trading)", value=False)
     with col2:
-        model_type = st.selectbox("Model Type", ["Random Forest", "Linear Regression"], index=0)
+        model_type = st.selectbox(
+            "Model Type", 
+            ["Random Forest", "Linear Regression", "Quantum-Enhanced"], 
+            index=0
+        )
+    with col3:
+        quantum_weight = st.slider(
+            "Quantum Model Weight", 
+            min_value=0.0, 
+            max_value=1.0, 
+            value=0.5,
+            help="Adjust the influence of the quantum model (only used with Quantum-Enhanced model)",
+            disabled=model_type != "Quantum-Enhanced"
+        )
+    
+    # Show quantum info
+    if model_type == "Quantum-Enhanced":
+        with st.expander("ℹ️ About Quantum-Enhanced Predictions"):
+            st.markdown("""
+            **Quantum-Enhanced Predictions** leverage quantum computing to potentially improve accuracy:
+            
+            - Uses a hybrid quantum-classical neural network
+            - Quantum circuits can capture complex market patterns
+            - May provide better performance on certain market conditions
+            - Note: Quantum simulations run slower than classical models
+            """)
     
     if st.button("Generate Intraday Predictions") or auto_refresh:
         try:
+            # Define currency symbol early to use in metrics
+            currency_symbol = "₹" if is_indian_stock(symbol) else "$"
+
             with st.spinner("Fetching real-time data and generating intraday predictions..."):
-                # Initialize intraday predictor
-                intraday_predictor = IntradayPredictor()
+                # Initialize intraday predictor with quantum option
+                use_quantum = model_type == "Quantum-Enhanced"
+                intraday_predictor = IntradayPredictor(use_quantum=use_quantum)
                 
-                # Fetch intraday data with fallback mechanism
+                # Fetch and process data
                 period = "5d" if interval in ["1m", "5m"] else "1mo"
-                data, is_fallback, market_status = intraday_predictor.fetch_intraday_data(symbol, period=period, interval=interval)
+                data, is_fallback, market_status = intraday_predictor.fetch_intraday_data(
+                    symbol, period=period, interval=interval)
+                
+                # Note: We'll set the quantum weight after the model is trained
                 
                 # Display market status and data source info
                 if is_fallback:
@@ -944,11 +1049,34 @@ def show_intraday_prediction():
                     st.success(f"📈 **{market_status}** - Using real intraday market data for accurate predictions.")
                 
                 if data.empty:
-                    st.error("❌ No data available for this symbol. Please check the stock symbol and try again.")
+                    st.warning("⚠️ Could not retrieve any intraday data.")
+                    st.info("This can happen for a few reasons:")
+                    st.markdown("""
+                    *   **The market may be closed.** Intraday data is typically only available during active trading hours.
+                    *   **The selected stock may have low trading volume,** meaning less data is available.
+                    
+                    **Suggestion:** Please try again during market hours or select a different stock.
+                    """)
                     return
+                
+                # Debug: Show data info
+                st.info(f"📊 **Data Info:** Fetched {len(data)} data points from {data.index[0] if not data.empty else 'N/A'} to {data.index[-1] if not data.empty else 'N/A'}")
                 
                 # Prepare features
                 processed_data = intraday_predictor.prepare_intraday_features(data)
+                
+                # Debug: Show processed data info
+                if not processed_data.empty:
+                    st.success(f"✅ **Feature Engineering Successful:** Generated {len(processed_data)} rows with {len(processed_data.columns)} features")
+                else:
+                    st.error(f"❌ **Feature Engineering Failed:** Started with {len(data)} rows, ended with 0 rows after processing")
+                
+                # Final validation check after feature engineering
+                if processed_data.empty:
+                    st.error("❌ **Prediction Failed:** Could not generate a prediction from the available data.")
+                    st.warning("This can happen if there isn't enough recent data to compute the necessary technical indicators (e.g., moving averages, RSI).")
+                    st.info("**Suggestion:** Please try again later, or select a different stock with higher trading volume.")
+                    return
                 
                 # Train models for different time horizons
                 target_map = {
@@ -959,10 +1087,37 @@ def show_intraday_prediction():
                 }
                 target_column = target_map.get(interval, "Target_5min")
                 
-                model_type_key = model_type.lower().replace(" ", "_")
-                model, X_test, y_test = intraday_predictor.train_intraday_model(
-                    processed_data, target_column, model_type_key
-                )
+                # Train model
+                if model_type == "Quantum-Enhanced":
+                    model_type_key = 'quantum'
+                else:
+                    model_type_key = 'random_forest' if model_type == "Random Forest" else 'linear_regression'
+                    
+                with st.spinner(f"Training {model_type} model..."):
+                    model, X_test, y_test = intraday_predictor.train_intraday_model(
+                        processed_data, target_column, model_type_key)
+                    
+                    # Set quantum weight after model is trained
+                    if use_quantum and hasattr(intraday_predictor, 'hybrid_predictor'):
+                        intraday_predictor.hybrid_predictor.set_quantum_weight(quantum_weight)
+                    
+                    if model is None:
+                        st.error("Failed to train the model. Please try again with different parameters.")
+                        return
+                
+                # Display model performance metrics
+                st.subheader("📊 Model Performance on Recent Data")
+                test_predictions = model.predict(X_test)
+                mae = mean_absolute_error(y_test, test_predictions)
+                r2 = r2_score(y_test, test_predictions)
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Mean Absolute Error (MAE)", f"{currency_symbol}{mae:.4f}")
+                    st.caption("Lower is better. Average prediction error.")
+                with col2:
+                    st.metric("R-squared (R²)", f"{r2:.2f}")
+                    st.caption("Closer to 1 is better. Model fit.")
                 
                 # Generate predictions
                 predictions = intraday_predictor.predict_intraday(model, processed_data, prediction_periods)
@@ -980,9 +1135,6 @@ def show_intraday_prediction():
                 
                 st.markdown(f"""### 📈 Market Status: <span style='color: {status_color}'>{market_status}</span>
                 **Last Update:** {data.index[-1].strftime('%Y-%m-%d %H:%M:%S')}""", unsafe_allow_html=True)
-                
-                # Currency formatting
-                currency_symbol = "₹" if is_indian_stock(symbol) else "$"
                 
                 # Key levels display
                 st.subheader("🎯 Key Intraday Levels")
@@ -1121,7 +1273,7 @@ def show_intraday_prediction():
                     ))
                     fig_rsi.add_hline(y=70, line_dash="dash", line_color="red", annotation_text="Overbought")
                     fig_rsi.add_hline(y=30, line_dash="dash", line_color="green", annotation_text="Oversold")
-                    fig_rsi.update_layout(title="RSI (14)", height=300)
+                    fig_rsi.update_layout(title="RSI (14)", yaxis_title="RSI", height=300)
                     st.plotly_chart(fig_rsi, use_container_width=True)
                 
                 # Risk management section
@@ -1376,7 +1528,7 @@ def show_accuracy_validation():
                 
                 # Risk disclaimer with accuracy context
                 st.error("⚠️ **ACCURACY DISCLAIMER**: While our models show high historical accuracy, past performance does not guarantee future results. "
-                        "Market conditions change, and even 80%+ accurate models can be wrong. Always use proper risk management and never invest more than you can afford to lose.")
+                        "Market conditions can change rapidly, and even 80%+ accurate models can be wrong. Always use proper risk management and never invest more than you can afford to lose.")
                 
         except Exception as e:
             st.error(f"Error running accuracy validation: {str(e)}")
