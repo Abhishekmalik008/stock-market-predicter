@@ -12,7 +12,7 @@ A comprehensive stock market prediction application built with Python, featuring
 - **Performance Metrics**: Model evaluation with RMSE, MAE, and R² scores
 - **Trading Signals**: Generate BUY/SELL/HOLD recommendations
 
-## Installation
+## Local Installation
 
 1. Clone or download this repository
 2. Install required dependencies:
@@ -20,7 +20,7 @@ A comprehensive stock market prediction application built with Python, featuring
 pip install -r requirements.txt
 ```
 
-## Usage
+## Local Usage
 
 1. Run the application:
 ```bash
@@ -29,10 +29,24 @@ streamlit run main.py
 
 2. Open your browser and navigate to the provided URL (usually `http://localhost:8501`)
 
-3. Use the sidebar to navigate between different features:
-   - **Stock Analysis**: View historical data, charts, and basic metrics
-   - **Price Prediction**: Generate predictions using different ML models
-   - **Model Performance**: Compare model accuracy and performance
+## Cloud Deployment (Streamlit Cloud)
+
+1. Push your code to a GitHub repository
+2. Go to [Streamlit Cloud](https://share.streamlit.io/)
+3. Click "New app" and select your repository
+4. Set the following configuration:
+   - **Repository**: Your GitHub repository
+   - **Branch**: main (or your preferred branch)
+   - **Main file path**: `streamlit_app.py`
+   - **Python version**: 3.9
+5. Click "Deploy!"
+
+## Features in the Cloud Version
+
+The cloud version includes a streamlined interface with:
+- Real-time stock data visualization
+- Interactive candlestick charts
+- Basic stock information
 
 ## Supported Models
 
